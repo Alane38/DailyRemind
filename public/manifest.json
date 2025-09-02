@@ -1,0 +1,51 @@
+{
+  "name": "DailyRemind - Health Reminder App",
+  "short_name": "DailyRemind",
+  "description": "Your personal health reminder companion for posture, vision, and wellness habits",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#15803d",
+  "orientation": "portrait-primary",
+  "categories": ["health", "lifestyle", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Reminder",
+      "short_name": "Add",
+      "description": "Quickly add a new health reminder",
+      "url": "/add-reminder",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Browse Templates",
+      "short_name": "Templates",
+      "description": "Browse predefined reminder templates",
+      "url": "/templates",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
