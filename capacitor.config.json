@@ -2,6 +2,7 @@
   "appId": "com.dailyremind.app",
   "appName": "DailyRemind",
   "webDir": "out",
+  "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https"
   },
