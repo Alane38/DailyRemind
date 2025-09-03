@@ -9,6 +9,7 @@ export class NotificationService {
   private static instance: NotificationService
   private isCapacitorAvailable = Capacitor.isNativePlatform()
   private permissionGranted = false
+  private scheduledNotifications = new Map<string, number>() // reminderId -> notificationId
 
   static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -86,6 +87,7 @@ export class NotificationService {
     await LocalNotifications.addListener("localNotificationActionPerformed", (notificationAction) => {
       console.log("Notification action performed:", notificationAction)
       this.handleNotificationAction(notificationAction)
+      this.showCompletionPopup(notificationAction.notification)
     })
   }
 
@@ -99,67 +101,55 @@ export class NotificationService {
     }
 
     try {
-      // Cancel existing notifications for this reminder
       await this.cancelReminderNotifications(reminder.id)
 
       if (!reminder.isEnabled || reminder.status !== "active") {
         return true
       }
 
-      const notifications: ScheduleOptions[] = []
-      const now = new Date()
+      const nextTime = calculateNextNotification(reminder, new Date())
+      if (!nextTime) return false
 
-      // Schedule next few notifications (up to 64 due to platform limits)
-      for (let i = 0; i < NOTIFICATION_CONFIG.MAX_PENDING_NOTIFICATIONS; i++) {
-        const nextTime = calculateNextNotification(reminder, now)
-        if (!nextTime) break
+      const execution: ReminderExecution = {
+        id: generateExecutionId(),
+        reminderId: reminder.id,
+        scheduledTime: nextTime,
+        status: "pending",
+      }
 
-        const execution: ReminderExecution = {
-          id: generateExecutionId(),
-          reminderId: reminder.id,
-          scheduledTime: nextTime,
-          status: "pending",
-        }
+      storage.addExecution(execution)
 
-        // Store execution for tracking
-        storage.addExecution(execution)
+      const notificationId = Number.parseInt(execution.id.replace(/\D/g, "").slice(-8))
 
-        const notification: ScheduleOptions = {
-          notifications: [
-            {
-              id: Number.parseInt(execution.id.replace(/\D/g, "").slice(-8)), // Extract numeric ID
-              title: reminder.title,
-              body: reminder.description || "Time for your health reminder!",
-              schedule: { at: nextTime },
-              sound: reminder.soundEnabled ? NOTIFICATION_CONFIG.NOTIFICATION_SOUND : undefined,
-              extra: {
-                reminderId: reminder.id,
-                executionId: execution.id,
-                category: reminder.category,
-              },
+      const notification: ScheduleOptions = {
+        notifications: [
+          {
+            id: notificationId,
+            title: reminder.title,
+            body: reminder.description || "Time for your health reminder!",
+            schedule: { at: nextTime },
+            sound: reminder.soundEnabled ? "default" : undefined,
+            extra: {
+              reminderId: reminder.id,
+              executionId: execution.id,
+              category: reminder.category,
             },
-          ],
-        }
-
-        notifications.push(notification)
-
-        // Update now for next calculation
-        now.setTime(nextTime.getTime() + 1000)
+          },
+        ],
       }
 
-      // Schedule all notifications
-      if (notifications.length > 0) {
-        if (this.isCapacitorAvailable) {
-          for (const notification of notifications) {
-            await LocalNotifications.schedule(notification)
-          }
-        } else {
-          // Web fallback - schedule first notification only
-          this.scheduleWebNotification(notifications[0].notifications[0])
+      if (this.isCapacitorAvailable) {
+        await LocalNotifications.schedule(notification)
+        if (reminder.vibrationEnabled) {
+          // Vibration will be handled when notification is received
         }
+      } else {
+        this.scheduleWebNotification(notification.notifications[0])
       }
 
-      console.log(`Scheduled ${notifications.length} notifications for reminder: ${reminder.title}`)
+      this.scheduledNotifications.set(reminder.id, notificationId)
+
+      console.log(`Scheduled notification for reminder: ${reminder.title} at ${nextTime}`)
       return true
     } catch (error) {
       console.error("Failed to schedule notifications:", error)
@@ -173,17 +163,14 @@ export class NotificationService {
   async cancelReminderNotifications(reminderId: string): Promise<void> {
     try {
       if (this.isCapacitorAvailable) {
-        // Get pending notifications
-        const pending = await LocalNotifications.getPending()
-        const reminderNotifications = pending.notifications.filter((n) => n.extra?.reminderId === reminderId)
-
-        if (reminderNotifications.length > 0) {
-          const ids = reminderNotifications.map((n) => n.id)
-          await LocalNotifications.cancel({ notifications: ids.map((id) => ({ id })) })
+        const notificationId = this.scheduledNotifications.get(reminderId)
+        if (notificationId) {
+          await LocalNotifications.cancel({ notifications: [{ id: notificationId }] })
         }
       }
 
-      // Update executions in storage
+      this.scheduledNotifications.delete(reminderId)
+
       const executions = storage.getExecutions()
       const updatedExecutions = executions.map((e) =>
         e.reminderId === reminderId && e.status === "pending" ? { ...e, status: "dismissed" as const } : e,
@@ -224,7 +211,8 @@ export class NotificationService {
         }
       }
 
-      // Update all pending executions
+      this.scheduledNotifications.clear()
+
       const executions = storage.getExecutions()
       const updatedExecutions = executions.map((e) =>
         e.status === "pending" ? { ...e, status: "dismissed" as const } : e,
@@ -241,9 +229,18 @@ export class NotificationService {
    * Handle notification received
    */
   private handleNotificationReceived(notification: any): void {
-    const { executionId } = notification.extra || {}
+    const { executionId, reminderId } = notification.extra || {}
+
+    if (this.isCapacitorAvailable) {
+      const reminder = storage.getReminders().find((r) => r.id === reminderId)
+      if (reminder?.vibrationEnabled) {
+        if ("vibrate" in navigator) {
+          navigator.vibrate(NOTIFICATION_CONFIG.VIBRATION_PATTERN)
+        }
+      }
+    }
+
     if (executionId) {
-      // Update execution status
       const executions = storage.getExecutions()
       const execution = executions.find((e) => e.id === executionId)
       if (execution) {
@@ -270,9 +267,68 @@ export class NotificationService {
         execution.userResponse = "acknowledged"
         storage.setExecutions(executions)
 
-        // Update reminder stats
         this.updateReminderStats(reminderId)
+
+        const reminder = storage.getReminders().find((r) => r.id === reminderId)
+        if (reminder) {
+          setTimeout(() => {
+            this.scheduleReminderNotifications(reminder)
+          }, 1000)
+        }
       }
+    }
+  }
+
+  private showCompletionPopup(notification: any): void {
+    const { reminderId } = notification.extra || {}
+    const reminder = storage.getReminders().find((r) => r.id === reminderId)
+
+    if (reminder) {
+      const popup = document.createElement("div")
+      popup.className = "fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      popup.innerHTML = `
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 m-4 max-w-sm w-full shadow-xl">
+          <h3 class="text-lg font-semibold mb-2 text-gray-900 dark:text-white">${reminder.title}</h3>
+          <p class="text-gray-600 dark:text-gray-300 mb-4">Did you complete this reminder?</p>
+          <div class="flex gap-2">
+            <button id="complete-btn" class="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded transition-colors">Complete</button>
+            <button id="dismiss-btn" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded transition-colors">Dismiss</button>
+          </div>
+        </div>
+      `
+
+      document.body.appendChild(popup)
+
+      popup.querySelector("#complete-btn")?.addEventListener("click", () => {
+        this.markReminderCompleted(reminderId)
+        document.body.removeChild(popup)
+      })
+
+      popup.querySelector("#dismiss-btn")?.addEventListener("click", () => {
+        document.body.removeChild(popup)
+      })
+
+      // Auto-dismiss after 10 seconds
+      setTimeout(() => {
+        if (document.body.contains(popup)) {
+          document.body.removeChild(popup)
+        }
+      }, 10000)
+    }
+  }
+
+  private markReminderCompleted(reminderId: string): void {
+    const executions = storage.getExecutions()
+    const latestExecution = executions
+      .filter((e) => e.reminderId === reminderId && e.status === "pending")
+      .sort((a, b) => new Date(b.scheduledTime).getTime() - new Date(a.scheduledTime).getTime())[0]
+
+    if (latestExecution) {
+      latestExecution.status = "completed"
+      latestExecution.executedTime = new Date()
+      latestExecution.userResponse = "acknowledged"
+      storage.setExecutions(executions)
+      this.updateReminderStats(reminderId)
     }
   }
 
@@ -280,17 +336,22 @@ export class NotificationService {
    * Schedule web notification (fallback)
    */
   private scheduleWebNotification(notification: any): void {
-    const { title, body, schedule } = notification
+    const { title, body, schedule, extra } = notification
     const delay = schedule.at.getTime() - Date.now()
 
     if (delay > 0) {
       setTimeout(() => {
         if (this.permissionGranted) {
-          new Notification(title, {
+          const webNotification = new Notification(title, {
             body,
             icon: "/icon-192x192.png",
             badge: "/icon-192x192.png",
           })
+
+          webNotification.onclick = () => {
+            this.showCompletionPopup({ extra })
+            webNotification.close()
+          }
         }
       }, delay)
     }

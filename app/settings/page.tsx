@@ -4,6 +4,7 @@ import type React from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { useTheme } from "next-themes"
 import { ArrowLeft, Bell, Sun, Trash2, Download, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,30 +12,41 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { usePreferences } from "@/lib/hooks/use-preferences"
 import { useReminders } from "@/lib/hooks/use-reminders"
-import { StorageService } from "@/lib/storage"
+import { storage } from "@/lib/storage"
 
 export default function SettingsPage() {
   const router = useRouter()
+  const { theme, setTheme } = useTheme()
   const { preferences, updatePreferences } = usePreferences()
   const { reminders, clearAllReminders } = useReminders()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const handleExportData = () => {
-    const data = {
-      reminders,
-      preferences,
-      exportDate: new Date().toISOString(),
-    }
+    try {
+      const data = {
+        reminders: storage.getReminders(),
+        executions: storage.getExecutions(),
+        preferences: storage.getPreferences(),
+        stats: storage.getAllStats(),
+        exportDate: new Date().toISOString(),
+        version: "1.0.0",
+      }
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `dailyremind-backup-${new Date().toISOString().split("T")[0]}.json`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `dailyremind-backup-${new Date().toISOString().split("T")[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      alert("Data exported successfully!")
+    } catch (error) {
+      console.error("Export failed:", error)
+      alert("Export failed. Please try again.")
+    }
   }
 
   const handleImportData = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,27 +57,59 @@ export default function SettingsPage() {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string)
+
         if (data.reminders && data.preferences) {
-          // Import data (this would need proper implementation)
-          console.log("Import data:", data)
-          alert("Import functionality would be implemented here")
+          // Validate data structure
+          if (Array.isArray(data.reminders) && typeof data.preferences === "object") {
+            storage.setReminders(data.reminders)
+            storage.setPreferences(data.preferences)
+            if (data.executions) storage.setExecutions(data.executions)
+            if (data.stats) {
+              Object.entries(data.stats).forEach(([reminderId, stats]) => {
+                storage.updateReminderStats(reminderId, stats as any)
+              })
+            }
+
+            alert("Data imported successfully! Please refresh the page.")
+            setTimeout(() => window.location.reload(), 1000)
+          } else {
+            throw new Error("Invalid data structure")
+          }
+        } else {
+          throw new Error("Missing required data")
         }
       } catch (error) {
-        alert("Invalid backup file")
+        console.error("Import failed:", error)
+        alert("Invalid backup file. Please check the file format.")
       }
     }
     reader.readAsText(file)
+
+    // Reset file input
+    event.target.value = ""
   }
 
   const handleDeleteAllData = () => {
     if (showDeleteConfirm) {
-      clearAllReminders()
-      StorageService.clearAll()
-      setShowDeleteConfirm(false)
-      router.push("/setup")
+      try {
+        clearAllReminders()
+        storage.clearAll()
+        setShowDeleteConfirm(false)
+        alert("All data deleted successfully!")
+        router.push("/setup")
+      } catch (error) {
+        console.error("Delete failed:", error)
+        alert("Failed to delete data. Please try again.")
+      }
     } else {
       setShowDeleteConfirm(true)
     }
+  }
+
+  const handleThemeChange = (isDark: boolean) => {
+    const newTheme = isDark ? "dark" : "light"
+    setTheme(newTheme)
+    updatePreferences({ theme: newTheme })
   }
 
   return (
@@ -145,10 +189,7 @@ export default function SettingsPage() {
                 <Label>Dark Mode</Label>
                 <p className="text-sm text-muted-foreground">Use dark theme</p>
               </div>
-              <Switch
-                checked={preferences.theme === "dark"}
-                onCheckedChange={(checked) => updatePreferences({ theme: checked ? "dark" : "light" })}
-              />
+              <Switch checked={theme === "dark"} onCheckedChange={handleThemeChange} />
             </div>
           </CardContent>
         </Card>

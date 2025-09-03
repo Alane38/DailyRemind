@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -7,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Bell, Edit, Trash2, Clock, Repeat } from "lucide-react"
 import type { Reminder } from "@/lib/types"
 import { REMINDER_CATEGORIES } from "@/lib/constants"
-import { formatTimeSlot } from "@/lib/utils/reminder-utils"
+import { formatTimeSlot, calculateNextNotification } from "@/lib/utils/reminder-utils"
 
 interface ReminderCardProps {
   reminder: Reminder
@@ -18,7 +19,59 @@ interface ReminderCardProps {
 }
 
 export function ReminderCard({ reminder, onToggle, onEdit, onDelete, nextNotification }: ReminderCardProps) {
+  const [timeRemaining, setTimeRemaining] = useState<string>("")
+  const [currentNextNotification, setCurrentNextNotification] = useState<Date | null>(null)
+
   const category = REMINDER_CATEGORIES[reminder.category]
+
+  useEffect(() => {
+    const updateTimeRemaining = () => {
+      if (!reminder.isEnabled) {
+        setTimeRemaining("")
+        setCurrentNextNotification(null)
+        return
+      }
+
+      const next = calculateNextNotification(reminder, new Date())
+      setCurrentNextNotification(next)
+
+      if (!next) {
+        setTimeRemaining("")
+        return
+      }
+
+      const now = new Date()
+      const diff = next.getTime() - now.getTime()
+
+      if (diff < 0) {
+        setTimeRemaining("Overdue")
+        return
+      }
+
+      const totalSeconds = Math.floor(diff / 1000)
+      const days = Math.floor(totalSeconds / (24 * 3600))
+      const hours = Math.floor((totalSeconds % (24 * 3600)) / 3600)
+      const minutes = Math.floor((totalSeconds % 3600) / 60)
+      const seconds = totalSeconds % 60
+
+      if (days > 0) {
+        setTimeRemaining(`${days}d ${hours}h ${minutes}m`)
+      } else if (hours > 0) {
+        setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`)
+      } else if (minutes > 0) {
+        setTimeRemaining(`${minutes}m ${seconds}s`)
+      } else if (seconds > 0) {
+        setTimeRemaining(`${seconds}s`)
+      } else {
+        setTimeRemaining("Now!")
+      }
+    }
+
+    updateTimeRemaining()
+    const interval = setInterval(updateTimeRemaining, 1000)
+
+    return () => clearInterval(interval)
+  }, [reminder])
 
   const getRecurrenceText = () => {
     const { recurrence } = reminder
@@ -41,24 +94,6 @@ export function ReminderCard({ reminder, onToggle, onEdit, onDelete, nextNotific
       default:
         return "Custom"
     }
-  }
-
-  const getNextNotificationText = () => {
-    if (!nextNotification || !reminder.isEnabled) return null
-
-    const now = new Date()
-    const diff = nextNotification.getTime() - now.getTime()
-
-    if (diff < 0) return "Overdue"
-
-    const minutes = Math.floor(diff / (1000 * 60))
-    const hours = Math.floor(minutes / 60)
-    const days = Math.floor(hours / 24)
-
-    if (days > 0) return `In ${days}d`
-    if (hours > 0) return `In ${hours}h ${minutes % 60}m`
-    if (minutes > 0) return `In ${minutes}m`
-    return "Now"
   }
 
   return (
@@ -106,10 +141,14 @@ export function ReminderCard({ reminder, onToggle, onEdit, onDelete, nextNotific
           <Switch checked={reminder.isEnabled} onCheckedChange={(enabled) => onToggle(reminder.id, enabled)} />
         </div>
 
-        {nextNotification && reminder.isEnabled && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-3 w-3" />
-            <span>Next: {getNextNotificationText()}</span>
+        {reminder.isEnabled && timeRemaining && (
+          <div className="flex items-center gap-2 text-sm">
+            <Clock className="h-3 w-3 text-primary" />
+            <span
+              className={`font-medium ${timeRemaining === "Now!" ? "text-primary animate-pulse" : timeRemaining === "Overdue" ? "text-destructive" : "text-foreground"}`}
+            >
+              Next: {timeRemaining}
+            </span>
           </div>
         )}
 

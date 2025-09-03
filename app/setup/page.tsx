@@ -4,11 +4,14 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Bell, ArrowRight, CheckCircle } from "lucide-react"
+import { Bell, ArrowRight, CheckCircle, TestTube } from "lucide-react"
 import { PredefinedReminders } from "@/components/predefined-reminders"
 import { NotificationPermission } from "@/components/notification-permission"
 import { useSetup } from "@/lib/hooks/use-setup"
 import { useNotifications } from "@/lib/hooks/use-notifications"
+import { storage } from "@/lib/storage"
+import { generateReminderId } from "@/lib/utils/reminder-utils"
+import type { Reminder } from "@/lib/types"
 
 export default function SetupPage() {
   const router = useRouter()
@@ -16,6 +19,109 @@ export default function SetupPage() {
   const { scheduleAllReminders } = useNotifications()
   const [currentStep, setCurrentStep] = useState(0)
   const [selectedReminders, setSelectedReminders] = useState<string[]>([])
+
+  const createDemoData = () => {
+    const now = new Date()
+
+    const demoReminders: Reminder[] = [
+      {
+        id: generateReminderId(),
+        title: "Posture Check",
+        description: "Sit up straight and adjust your posture",
+        category: "posture",
+        recurrence: {
+          type: "interval",
+          intervalMinutes: 30,
+        },
+        status: "active",
+        isEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+        soundEnabled: true,
+        vibrationEnabled: true,
+      },
+      {
+        id: generateReminderId(),
+        title: "20-20-20 Rule",
+        description: "Look at something 20 feet away for 20 seconds",
+        category: "vision",
+        recurrence: {
+          type: "interval",
+          intervalMinutes: 20,
+        },
+        status: "active",
+        isEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+        soundEnabled: true,
+        vibrationEnabled: false,
+      },
+      {
+        id: generateReminderId(),
+        title: "Hydration Break",
+        description: "Drink a glass of water",
+        category: "hydration",
+        recurrence: {
+          type: "interval",
+          intervalMinutes: 60,
+        },
+        status: "active",
+        isEnabled: true,
+        createdAt: now,
+        updatedAt: now,
+        soundEnabled: false,
+        vibrationEnabled: true,
+      },
+      {
+        id: generateReminderId(),
+        title: "Morning Stretch",
+        description: "Do some light stretching exercises",
+        category: "custom",
+        recurrence: {
+          type: "daily",
+          dailyTime: { hour: 8, minute: 0 },
+        },
+        status: "active",
+        isEnabled: false,
+        createdAt: now,
+        updatedAt: now,
+        soundEnabled: true,
+        vibrationEnabled: true,
+      },
+    ]
+
+    // Save demo reminders
+    storage.setReminders(demoReminders)
+
+    // Create some demo executions for statistics
+    const demoExecutions = []
+    const today = new Date()
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(today)
+      date.setDate(date.getDate() - i)
+
+      demoReminders.forEach((reminder, index) => {
+        if (Math.random() > 0.3) {
+          // 70% completion rate
+          demoExecutions.push({
+            id: `demo_exec_${i}_${index}`,
+            reminderId: reminder.id,
+            scheduledTime: new Date(date.getTime() + Math.random() * 24 * 60 * 60 * 1000),
+            executedTime: new Date(date.getTime() + Math.random() * 24 * 60 * 60 * 1000),
+            status: "completed" as const,
+            userResponse: "acknowledged" as const,
+          })
+        }
+      })
+    }
+
+    storage.setExecutions(demoExecutions)
+
+    // Complete setup and redirect
+    completeSetup([])
+    router.push("/")
+  }
 
   const steps = [
     {
@@ -46,6 +152,14 @@ export default function SetupPage() {
               <CheckCircle className="h-4 w-4 text-primary flex-shrink-0" />
               <span>Progress tracking and statistics</span>
             </div>
+          </div>
+
+          <div className="pt-4 border-t border-border">
+            <p className="text-sm text-muted-foreground mb-3">Want to explore the app with sample data?</p>
+            <Button variant="outline" onClick={createDemoData} className="gap-2 bg-transparent">
+              <TestTube className="h-4 w-4" />
+              Try Demo Mode
+            </Button>
           </div>
         </div>
       ),

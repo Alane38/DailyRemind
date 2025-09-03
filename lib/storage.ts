@@ -214,6 +214,15 @@ export class StorageService {
     })
   }
 
+  clearAll(): void {
+    this.clearAllData()
+  }
+
+  getAllStats(): Record<string, ReminderStats> {
+    return this.getStats()
+  }
+
+  // Export and import functionality
   exportData(): string {
     const data = this.getAppState()
     return JSON.stringify(data, this.dateReplacer, 2)

@@ -137,7 +137,7 @@ export const TIME_SLOTS = {
 
 // Notification settings
 export const NOTIFICATION_CONFIG = {
-  MAX_PENDING_NOTIFICATIONS: 64, // iOS/Android limit
+  MAX_PENDING_NOTIFICATIONS: 1, // Only schedule next notification to prevent duplicates
   DEFAULT_SNOOZE_MINUTES: 10,
   MAX_SNOOZE_COUNT: 3,
   NOTIFICATION_SOUND: "default",
