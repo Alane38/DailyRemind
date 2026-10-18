@@ -15,7 +15,7 @@ interface ReminderCardProps {
   onToggle: (id: string, enabled: boolean) => void
   onEdit: (reminder: Reminder) => void
   onDelete: (id: string) => void
-  nextNotification?: Date
+  nextNotification?: Date | unknown
 }
 
 export function ReminderCard({ reminder, onToggle, onEdit, onDelete, nextNotification }: ReminderCardProps) {
@@ -66,6 +66,8 @@ export function ReminderCard({ reminder, onToggle, onEdit, onDelete, nextNotific
         setTimeRemaining("Now!")
       }
     }
+
+    console.log("Updating time remaining for reminder:", reminder)
 
     updateTimeRemaining()
     const interval = setInterval(updateTimeRemaining, 1000)

@@ -39,7 +39,7 @@ export interface Reminder {
   createdAt: Date
   updatedAt: Date
   // Next scheduled notification time
-  nextNotification?: Date
+  nextNotification?: Date | unknown
   // Custom icon or use category default
   icon?: string
   // Sound/vibration settings
